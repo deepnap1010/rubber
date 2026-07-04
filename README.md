@@ -39,3 +39,20 @@ Status logic: a machine is **OFFLINE** if no telemetry arrived in the last
 
 All metric values are displayed exactly as reported by the PLC — no unit
 labels or time conversions are added on top of the server data.
+
+## Deploying to Render
+
+This app must be deployed as a **Web Service** (it runs a Node server), NOT a
+Static Site — a static site serves only `public/` and every `/api/*` call 404s.
+
+1. Render Dashboard → **New + → Web Service** → pick this repo (`render.yaml`
+   is auto-detected if you use **New + → Blueprint** instead).
+2. Build command `npm install`, start command `npm start`.
+3. Environment variables: `MONGODB_URI` (the Atlas connection string) and
+   `DB_NAME=sanmati`. Do **not** set `PORT` — Render injects its own.
+4. In MongoDB Atlas → **Network Access**, allow `0.0.0.0/0` (or Render's
+   outbound IPs) so the server can reach the cluster.
+5. Once the web service is live, delete the old static site.
+
+Note: on the free plan the service sleeps after ~15 min idle and takes
+~1 minute to wake on the next visit.

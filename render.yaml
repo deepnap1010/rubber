@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: rubber
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: DB_NAME
+        value: sanmati
+      - key: MONGODB_URI
+        sync: false # set in the Render dashboard — never commit the connection string

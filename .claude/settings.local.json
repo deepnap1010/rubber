@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/1/AppData/Local/Temp/claude/D--rubber-molding/f4a78d17-e449-436b-9c6d-ff5913fda7ab/scratchpad/**)",
+      "Bash(npm init *)",
+      "Bash(npm install *)",
+      "Bash(node explore.js)",
+      "Bash(git ls-remote *)"
+    ]
+  }
+}
