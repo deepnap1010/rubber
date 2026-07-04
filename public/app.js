@@ -28,6 +28,25 @@ function fmtAgo(iso) {
 }
 
 const has = (v) => v !== undefined && v !== null;
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// Fields already rendered by a dedicated widget; anything else the machine
+// reports is shown dynamically in the "Other metrics" section.
+const KNOWN_KEYS = new Set([
+  'type', 'dept', 'status', 'machineRunning',
+  'curingTimeSet', 'curingTime', 'curingTimeLeft',
+  'currentPressure', 'finalPressure', 'pressHoldTime', 'totalBumpsReq',
+  'cyclesCompleted', 'cyclesSession',
+  'runningSeconds', 'idleSeconds', 'runningCount', 'idleCount',
+  'rawRegisters',
+]);
+const isBumpKey = (k) => /^bump\d+(Pressure|HoldTime|DownTime)$/.test(k);
+const humanize = (k) => k.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/^./, (c) => c.toUpperCase());
+const fmtVal = (v) => (typeof v === 'number' ? fmtInt(v) : typeof v === 'boolean' ? (v ? 'Yes' : 'No') : esc(v));
+
+function extraMetrics(d) {
+  return Object.entries(d).filter(([k, v]) => !KNOWN_KEYS.has(k) && !isBumpKey(k) && typeof v !== 'object' && has(v));
+}
 
 /* ── card construction ───────────────────────────────── */
 
@@ -76,7 +95,7 @@ function buildCard(machine) {
           </div>
           <div class="bar"><div class="bar-fill" data-ref="pressureBar"></div></div>
         </div>
-        <div class="hold-line">Press hold&nbsp;<b class="mono" data-ref="holdTime">–</b>&nbsp;·&nbsp;Bumps required&nbsp;<b class="mono" data-ref="bumpsReq">–</b></div>
+        <div class="hold-line" data-ref="holdLine">Press hold&nbsp;<b class="mono" data-ref="holdTime">–</b>&nbsp;·&nbsp;Bumps required&nbsp;<b class="mono" data-ref="bumpsReq">–</b></div>
       </div>
     </div>
 
@@ -84,6 +103,11 @@ function buildCard(machine) {
       <div class="tile"><div class="tile-value mono" data-ref="cyclesTotal">–</div><div class="tile-label">Total cycles</div></div>
       <div class="tile"><div class="tile-value mono" data-ref="cyclesSession">–</div><div class="tile-label">Session cycles</div></div>
       <div class="tile"><div class="tile-value mono" data-ref="payloads">–</div><div class="tile-label">Payloads</div></div>
+    </div>
+
+    <div class="section" data-ref="extraSection" hidden>
+      <div class="section-title"><span>Other metrics</span></div>
+      <div class="tiles-inline" data-ref="extras"></div>
     </div>
 
     <div class="section" data-ref="bumpSection">
@@ -137,12 +161,14 @@ function updateCard(entry, m) {
   refs.pill.className = `status-pill ${m.status}`;
   refs.pillText.textContent = m.status;
 
-  // Curing ring — fraction of set curing time remaining (raw server values)
-  if (has(d.curingTimeSet) && d.curingTimeSet > 0) {
-    const left = Math.min(d.curingTimeLeft ?? 0, d.curingTimeSet);
+  // Curing ring — fraction of set curing time remaining (raw server values).
+  // Newer firmware reports curingTime instead of curingTimeSet.
+  const curingSet = d.curingTimeSet ?? d.curingTime;
+  if (has(curingSet) && curingSet > 0) {
+    const left = Math.min(d.curingTimeLeft ?? 0, curingSet);
     refs.curingLeft.textContent = fmtInt(left);
-    refs.curingSet.textContent = `of ${fmtInt(d.curingTimeSet)}`;
-    refs.ringBar.style.strokeDashoffset = RING_C * (1 - left / d.curingTimeSet);
+    refs.curingSet.textContent = `of ${fmtInt(curingSet)}`;
+    refs.ringBar.style.strokeDashoffset = RING_C * (1 - left / curingSet);
   } else {
     refs.curingLeft.textContent = '–';
     refs.curingSet.textContent = '';
@@ -158,8 +184,16 @@ function updateCard(entry, m) {
     refs.pressurePct.textContent = d.finalPressure > 0 ? pct + '%' : '';
   }
 
+  refs.holdLine.hidden = !(has(d.pressHoldTime) || has(d.totalBumpsReq));
   refs.holdTime.textContent = fmtInt(d.pressHoldTime);
   refs.bumpsReq.textContent = fmtInt(d.totalBumpsReq);
+
+  // Any metrics without a dedicated widget render as generic tiles
+  const extras = extraMetrics(d);
+  refs.extraSection.hidden = extras.length === 0;
+  refs.extras.innerHTML = extras
+    .map(([k, v]) => `<div class="tile"><div class="tile-value mono">${fmtVal(v)}</div><div class="tile-label">${esc(humanize(k))}</div></div>`)
+    .join('');
 
   refs.cyclesTotal.textContent = fmtInt(d.cyclesCompleted);
   refs.cyclesSession.textContent = fmtInt(d.cyclesSession);

@@ -42,6 +42,24 @@ function fmtDateTime(iso) {
 const has = (v) => v !== undefined && v !== null;
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+// Fields already rendered by a dedicated widget; anything else the machine
+// reports is shown dynamically in the "Other metrics" panel.
+const KNOWN_KEYS = new Set([
+  'type', 'dept', 'status', 'machineRunning',
+  'curingTimeSet', 'curingTime', 'curingTimeLeft',
+  'currentPressure', 'finalPressure', 'pressHoldTime', 'totalBumpsReq',
+  'cyclesCompleted', 'cyclesSession',
+  'runningSeconds', 'idleSeconds', 'runningCount', 'idleCount',
+  'rawRegisters',
+]);
+const isBumpKey = (k) => /^bump\d+(Pressure|HoldTime|DownTime)$/.test(k);
+const humanize = (k) => k.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/^./, (c) => c.toUpperCase());
+const fmtVal = (v) => (typeof v === 'number' ? fmtInt(v) : typeof v === 'boolean' ? (v ? 'Yes' : 'No') : esc(v));
+
+function extraMetrics(d) {
+  return Object.entries(d).filter(([k, v]) => !KNOWN_KEYS.has(k) && !isBumpKey(k) && typeof v !== 'object' && has(v));
+}
+
 /* ── page skeleton ───────────────────────────────────── */
 
 const RING_R = 50;
@@ -108,7 +126,7 @@ function buildPage() {
               </div>
               <div class="bar"><div class="bar-fill" data-ref="pressureBar"></div></div>
             </div>
-            <div class="hold-line">Press hold&nbsp;<b class="mono" data-ref="holdTime">–</b>&nbsp;·&nbsp;Bumps required&nbsp;<b class="mono" data-ref="bumpsReq">–</b></div>
+            <div class="hold-line" data-ref="holdLine">Press hold&nbsp;<b class="mono" data-ref="holdTime">–</b>&nbsp;·&nbsp;Bumps required&nbsp;<b class="mono" data-ref="bumpsReq">–</b></div>
           </div>
         </div>
       </div>
@@ -137,6 +155,11 @@ function buildPage() {
         </div>
       </div>
 
+      <div class="panel" data-ref="extraPanel" hidden>
+        <div class="panel-title"><span>Other metrics</span></div>
+        <div class="info-list" data-ref="extraRows"></div>
+      </div>
+
       <div class="panel">
         <div class="panel-title"><span>Machine info</span></div>
         <div class="info-list">
@@ -147,6 +170,19 @@ function buildPage() {
           <div class="info-row"><span class="k">Last telemetry (server)</span><span class="v" data-ref="iSeen">–</span></div>
           <div class="info-row"><span class="k">Last telemetry (device)</span><span class="v" data-ref="iDevice">–</span></div>
           <div class="info-row"><span class="k">Metrics reported</span><span class="v mono" data-ref="iMetrics">–</span></div>
+        </div>
+      </div>
+
+      <div class="panel wide">
+        <div class="panel-title"><span>Telemetry history</span><span data-ref="telCount"></span></div>
+        <div class="table-scroll">
+          <table class="bump-table tel-table">
+            <thead><tr>
+              <th>Server time</th><th>Status</th><th>Pressure</th><th>Curing left</th>
+              <th>Cycles</th><th>Session</th><th>Running s</th><th>Idle s</th>
+            </tr></thead>
+            <tbody data-ref="telRows"><tr><td colspan="8" style="color:var(--faint)">Loading…</td></tr></tbody>
+          </table>
         </div>
       </div>
 
@@ -185,18 +221,21 @@ function update(m) {
   refs.pill.className = `status-pill ${m.status}`;
   refs.pillText.textContent = m.status;
 
+  // Newer firmware reports curingTime instead of curingTimeSet.
+  const curingSet = d.curingTimeSet ?? d.curingTime;
+
   refs.kCycles.textContent = fmtInt(d.cyclesCompleted);
   refs.kSession.textContent = fmtInt(d.cyclesSession);
-  refs.kCuring.textContent = fmtInt(d.curingTimeSet);
+  refs.kCuring.textContent = fmtInt(curingSet);
   refs.kTarget.textContent = has(d.finalPressure) ? fmtInt(d.finalPressure) : '–';
   refs.kPayloads.textContent = fmtInt(m.payloadCount);
 
   // curing ring (raw server values)
-  if (has(d.curingTimeSet) && d.curingTimeSet > 0) {
-    const left = Math.min(d.curingTimeLeft ?? 0, d.curingTimeSet);
+  if (has(curingSet) && curingSet > 0) {
+    const left = Math.min(d.curingTimeLeft ?? 0, curingSet);
     refs.curingLeft.textContent = fmtInt(left);
-    refs.curingSet.textContent = `of ${fmtInt(d.curingTimeSet)}`;
-    refs.ringBar.style.strokeDashoffset = RING_C * (1 - left / d.curingTimeSet);
+    refs.curingSet.textContent = `of ${fmtInt(curingSet)}`;
+    refs.ringBar.style.strokeDashoffset = RING_C * (1 - left / curingSet);
   } else {
     refs.curingLeft.textContent = '–';
     refs.curingSet.textContent = '';
@@ -209,6 +248,7 @@ function update(m) {
   const pct = d.finalPressure > 0 ? Math.min(100, Math.round(((d.currentPressure || 0) / d.finalPressure) * 100)) : 0;
   refs.pressureBar.style.width = pct + '%';
   refs.pressurePct.textContent = d.finalPressure > 0 ? pct + '%' : '';
+  refs.holdLine.hidden = !(has(d.pressHoldTime) || has(d.totalBumpsReq));
   refs.holdTime.textContent = fmtInt(d.pressHoldTime);
   refs.bumpsReq.textContent = fmtInt(d.totalBumpsReq);
 
@@ -238,6 +278,13 @@ function update(m) {
   refs.idleTime.textContent = fmtInt(idle);
   refs.runCount.textContent = fmtInt(d.runningCount);
   refs.idleCount.textContent = fmtInt(d.idleCount);
+
+  // any metrics without a dedicated widget render as generic rows
+  const extras = extraMetrics(d);
+  refs.extraPanel.hidden = extras.length === 0;
+  refs.extraRows.innerHTML = extras
+    .map(([k, v]) => `<div class="info-row"><span class="k">${esc(humanize(k))}</span><span class="v mono">${fmtVal(v)}</span></div>`)
+    .join('');
 
   // machine info
   refs.iId.textContent = m.machineId;
@@ -331,7 +378,7 @@ async function refresh() {
 
     errorBanner.hidden = true;
     const loading = document.getElementById('loading');
-    if (loading) { loading.remove(); buildPage(); refreshHistory(); }
+    if (loading) { loading.remove(); buildPage(); refreshHistory(); refreshTelemetry(); }
     if (refs) update(m);
   } catch (err) {
     errorBanner.textContent = `Cannot reach plant data API — retrying… (${err.message})`;
@@ -349,7 +396,40 @@ async function refreshHistory() {
   } catch { /* keep last chart */ }
 }
 
+/* ── telemetry history table ─────────────────────────── */
+
+function fmtTime(iso) {
+  if (!iso) return '–';
+  return new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+}
+
+async function refreshTelemetry() {
+  if (!refs || !refs.telRows) return;
+  try {
+    const res = await fetch(`/api/machines/${encodeURIComponent(machineId)}/telemetry?limit=30`);
+    if (!res.ok) return;
+    const { records } = await res.json();
+    if (!records.length) {
+      refs.telRows.innerHTML = '<tr><td colspan="8" style="color:var(--faint)">No telemetry recorded yet</td></tr>';
+      refs.telCount.textContent = '';
+      return;
+    }
+    refs.telCount.textContent = `last ${records.length} records`;
+    refs.telRows.innerHTML = records.map((r) => `<tr>
+      <td class="mono">${fmtTime(r.serverTs)}</td>
+      <td><span class="status-pill mini ${esc(r.status || 'unknown')}"><span class="dot"></span>${esc(r.status || '–')}</span></td>
+      <td class="num mono">${fmtInt(r.currentPressure)}</td>
+      <td class="num mono">${fmtInt(r.curingTimeLeft)}</td>
+      <td class="num mono">${fmtInt(r.cyclesCompleted)}</td>
+      <td class="num mono">${fmtInt(r.cyclesSession)}</td>
+      <td class="num mono">${fmtInt(r.runningSeconds)}</td>
+      <td class="num mono">${fmtInt(r.idleSeconds)}</td>
+    </tr>`).join('');
+  } catch { /* keep last table */ }
+}
+
 refresh();
 setInterval(refresh, POLL_MS);
 historyTimer = setInterval(refreshHistory, HISTORY_POLL_MS);
+setInterval(refreshTelemetry, HISTORY_POLL_MS);
 setInterval(updateFreshness, 1000);

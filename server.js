@@ -131,6 +131,31 @@ app.get('/api/machines/:machineId/history', async (req, res) => {
   }
 });
 
+// Recent telemetry records for the history table on the detail page —
+// the raw documents as stored, minus the bulky register map.
+app.get('/api/machines/:machineId/telemetry', async (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit, 10) || 30, 200);
+  try {
+    const docs = await db
+      .collection('telemetries')
+      .find({ machineId: req.params.machineId })
+      .sort({ serverTs: -1 })
+      .limit(limit)
+      .project({ serverTs: 1, deviceTs: 1, data: 1 })
+      .toArray();
+
+    res.json({
+      records: docs.map((doc) => {
+        const { rawRegisters, ...metrics } = doc.data || {};
+        return { serverTs: doc.serverTs, deviceTs: doc.deviceTs, ...metrics };
+      }),
+    });
+  } catch (err) {
+    console.error('GET /api/machines/:id/telemetry failed:', err);
+    res.status(500).json({ error: 'Failed to load telemetry' });
+  }
+});
+
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 
 // Clean URL for the machine detail page: /machine/RUBBERMOLDING01

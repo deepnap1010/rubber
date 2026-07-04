@@ -284,6 +284,12 @@ body {
   padding: 0 1.25rem 1rem;
 }
 
+.tiles-inline {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+}
+
 .tile {
   background: var(--card-inner);
   border: 1px solid var(--card-edge);
@@ -480,6 +486,20 @@ body {
 .info-row:last-child { border-bottom: none; }
 .info-row .k { color: var(--muted); }
 .info-row .v { font-weight: 600; text-align: right; }
+
+/* telemetry history */
+.table-scroll { max-height: 340px; overflow: auto; border: 1px solid var(--card-edge); border-radius: 10px; }
+.tel-table { min-width: 640px; }
+.tel-table thead th {
+  position: sticky; top: 0;
+  background: var(--card-inner);
+  z-index: 1;
+  padding: 0.5rem;
+}
+.tel-table td { padding: 0.42rem 0.5rem; white-space: nowrap; }
+.status-pill.mini { font-size: 0.62rem; padding: 0.14rem 0.5rem; letter-spacing: 0.05em; }
+.status-pill.mini .dot { width: 5px; height: 5px; }
+.status-pill.mini.running .dot { animation: none; }
 
 /* raw registers */
 .registers {
